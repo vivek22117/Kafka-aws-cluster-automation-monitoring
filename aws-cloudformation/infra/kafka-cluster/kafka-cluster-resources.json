@@ -1,0 +1,1064 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation sample template that contains Kafka Cluster fixed resources",
+  "Parameters": {
+    "Env": {
+      "Description": "Environment to which cft is created",
+      "Type": "String"
+    },
+    "VPCStackName": {
+      "Description": "VPC under which the resources are created",
+      "Type": "String"
+    },
+    "KafkaFixedResourceStack": {
+      "Description": "Stack name of Kafka fixed reources",
+      "Type": "String"
+    },
+    "ZKFixedResourceStack": {
+      "Description": "Stack name of ZK fixed reources",
+      "Type": "String"
+    },
+    "InstanceType": {
+      "AllowedValues": [
+        "t2.small",
+        "t2.micro"
+      ],
+      "Description": "Type of instance",
+      "Type": "String",
+      "Default": "t2.small"
+    },
+    "KafkaKeyPair": {
+      "Description": "Key pair for ec2 instance",
+      "Type": "String",
+      "Default": "jenkins-master"
+    },
+    "SetupMonitoringParam": {
+      "Description": "setup Agent at boot time",
+      "Type": "String",
+      "Default": "True"
+    }
+  },
+  "Conditions": {
+    "SetupMonitoringCondition": {
+      "Fn::Equals": [
+        {
+          "Ref": "SetupMonitoringParam"
+        },
+        "True"
+      ]
+    }
+  },
+  "Resources": {
+    "KafkaCluster1EC2": {
+      "Metadata": {
+        "Comment": "Install a simple application",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "0_attach_format_ebs": {
+                "command": "/usr/local/bin/attach_format_ebs",
+                "ignoreErrors": "false"
+              },
+              "1_set_swappiness": {
+                "command": "/usr/local/bin/set_swappiness",
+                "ignoreErrors": "false"
+              },
+              "2_download_extract_kafka": {
+                "command": "/usr/local/bin/setup_kafka_bin",
+                "ignoreErrors": "false"
+              },
+              "3_start_kafka_service": {
+                "command": "/usr/local/bin/start_kafka",
+                "ignoreErrors": "false"
+              },
+              "4_tweak_bash_profile": {
+                "command": "/usr/local/bin/add_to_bash_profile",
+                "ignoreErrors": "false"
+              },
+              "5_setup_monitoring": {
+                "command": {
+                  "Fn::If": [
+                    "SetupMonitoringCondition",
+                    "/usr/local/bin/setup_monitoring",
+                    "echo \"no monitoring setup\""
+                  ]
+                },
+                "ignoreErrors": "false"
+              }
+            },
+            "files": {
+              "/etc/systemd/system/kafka.service": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[Unit]\n",
+                      "Description=Kafka\n",
+                      "After=network.target\n\n",
+                      "[Service]\n",
+                      "User=ec2-user\n",
+                      "Group=ec2-user\n",
+                      "Environment=",
+                      "KAFKA_HEAP_OPTS=-Xmx256M -Xms128M",
+                      "\n",
+                      "ExecStart=/home/ec2-user/kafka/bin/kafka-server-start.sh /home/ec2-user/kafka.properties\n",
+                      "SuccessExitStatus=143\n\n",
+                      "[Install]\n",
+                      "WantedBy=multi-user.target\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/home/ec2-user/kafka.properties": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "broker.id=1\n",
+                      "advertised.listeners=PLAINTEXT://",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${KafkaFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":9092",
+                      "\n",
+                      "delete.topic.enable=true\n",
+                      "log.dirs=/data/kafka\n",
+                      "num.partitions=8\n",
+                      "default.replication.factor=3\n",
+                      "min.insync.replicas=2\n",
+                      "log.retention.hours=10\n",
+                      "zookeeper.connect=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":2181,",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":2181",
+                      ",",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":2181",
+                      "\n",
+                      "zookeeper.connection.timeout.ms=6000\n",
+                      "auto.create.topics.enable=false\n",
+                      "offsets.topic.replication.factor=3\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              },
+              "/usr/local/bin/add_to_bash_profile": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "cat << ",
+                      "EOF",
+                      " >> /home/ec2-user/.bash_profile",
+                      "\n",
+                      "DAEMON_PATH=/home/ec2-user/kafka/bin\n",
+                      "export PATH=$PATH:$DAEMON_PATH\n",
+                      "export KAFKA_HEAP_OPTS=-Xmx256M -Xms128M\n",
+                      "EOF\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/attach_format_ebs": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "while [ ! -e /dev/xvdf ] ; do echo \"Waiting for attachment\"; sleep 1 ; done\n",
+                      "if [ \"$(file -b -s /dev/xvdf)\" == \"data\" ]; then\n",
+                      "mkfs.xfs -f /dev/xvdf\n",
+                      "fi\n",
+                      "mkdir -p /data/kafka\n",
+                      "mount -t xfs /dev/xvdf /data/kafka\n",
+                      "chown -R ec2-user:ec2-user /data/kafka\n",
+                      "echo '/dev/xvdf /data/kafka xfs defaults 0 0' >> /etc/fstab\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/set_swappiness": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sysctl vm.swappiness=1\n",
+                      "echo 'vm.swappiness=1' | sudo tee --append /etc/sysctl.conf\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_kafka_bin": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "wget -P /home/ec2-user http://apache.mirror.digitalpacific.com.au/kafka/1.1.1/kafka_2.12-1.1.1.tgz\n",
+                      "tar xf /home/ec2-user/kafka_2.12-1.1.1.tgz -C /home/ec2-user\n",
+                      "ln -s /home/ec2-user/kafka_2.12-1.1.1 /home/ec2-user/kafka\n",
+                      "chown -R ec2-user:ec2-user /home/ec2-user/kafka /home/ec2-user/kafka_2.12-1.1.1\n",
+                      "rm /home/ec2-user/kafka_2.12-1.1.1.tgz\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_monitoring": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sudo systemctl stop kafka\n",
+                      "mkdir -p /home/ec2-user/prometheus\n",
+                      "wget -N -P /home/ec2-user/prometheus https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.3.1/jmx_prometheus_javaagent-0.3.1.jar\n",
+                      "wget -N -P /home/ec2-user/prometheus https://raw.githubusercontent.com/prometheus/jmx_exporter/master/example_configs/kafka-0-8-2.yml\n",
+                      "mkdir -p /home/ec2-user/jolokia\n",
+                      "wget -N http://search.maven.org/remotecontent?filepath=org/jolokia/jolokia-jvm/1.6.0/jolokia-jvm-1.6.0-agent.jar -O /home/ec2-user/jolokia/jolokia-agent.jar\n",
+                      "if ! grep -q KAFKA_OPTS \"/etc/systemd/system/kafka.service\"; then\n",
+                        "sudo sed -i '/Environment=\"KAFKA_HEAP_OPTS/a Environment=\"KAFKA_OPTS=-javaagent:/home/ec2-user/prometheus/jmx_prometheus_javaagent-0.3.1.jar=8080:/home/ec2-user/prometheus/kafka-0-8-2.yml -javaagent:/home/ec2-user/jolokia/jolokia-agent.jar=host=*\"' /etc/systemd/system/kafka.service\n",
+                      "else\n",
+                        "sudo sed -i 's|Environment=\"KAFKA_OPTS.*|Environment=\"KAFKA_OPTS=-javaagent:/home/ec2-user/prometheus/jmx_prometheus_javaagent-0.3.1.jar=8080:/home/ec2-user/prometheus/kafka-0-8-2.yml -javaagent:/home/ec2-user/jolokia/jolokia-agent.jar=host=*\"|g' /etc/systemd/system/kafka.service\n",
+                      "fi\n",
+                      "sudo systemctl daemon-reload\n",
+                      "sudo systemctl start kafka\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/start_kafka": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "systemctl enable kafka.service\n",
+                      "systemctl start kafka.service"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "packages": {
+              "yum": {
+                "ca-certificates": [],
+                "java-1.8.0-openjdk": [],
+                "net-tools": [],
+                "tar": [],
+                "wget": [],
+                "xfsprogs": [],
+                "zip": []
+              }
+            }
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": "ami-035be7bafff33b6b6",
+        "KeyName": {
+          "Ref": "KafkaKeyPair"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "DeleteOnTermination": false,
+            "NetworkInterfaceId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${KafkaFixedResourceStack}-ENI-1"
+              }
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum update -y\n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " -r KafkaCluster1EC2 --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/opt/aws/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource Kafka1WaitCondition ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Kafka-1"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "Kafka1WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT5M"
+        }
+      }
+    },
+    "Kafka1VolumeAttachment": {
+      "Type": "AWS::EC2::VolumeAttachment",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "KafkaCluster1EC2"
+        },
+        "VolumeId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${KafkaFixedResourceStack}-EBS-1"
+          }
+        },
+        "Device": "/dev/sdf"
+      }
+    },
+    "KafkaCluster2EC2": {
+      "Metadata": {
+        "Comment": "Install a simple applicati",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "0_attach_format_ebs": {
+                "command": "/usr/local/bin/attach_format_ebs",
+                "ignoreErrors": "false"
+              },
+              "1_set_swappiness": {
+                "command": "/usr/local/bin/set_swappiness",
+                "ignoreErrors": "false"
+              },
+              "2_download_extract_kafka": {
+                "command": "/usr/local/bin/setup_kafka_bin",
+                "ignoreErrors": "false"
+              },
+              "3_start_kafka_service": {
+                "command": "/usr/local/bin/start_kafka",
+                "ignoreErrors": "false"
+              },
+              "4_tweak_bash_profile": {
+                "command": "/usr/local/bin/add_to_bash_profile",
+                "ignoreErrors": "false"
+              },
+              "5_setup_monitoring": {
+                "command": {
+                  "Fn::If": [
+                    "SetupMonitoringCondition",
+                    "/usr/local/bin/setup_monitoring",
+                    "echo \"no monitoring setup\""
+                  ]
+                },
+                "ignoreErrors": "false"
+              }
+            },
+            "files": {
+              "/etc/systemd/system/kafka.service": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[Unit]\n",
+                      "Description=Kafka\n",
+                      "After=network.target\n\n",
+                      "[Service]\n",
+                      "User=ec2-user\n",
+                      "Group=ec2-user\n",
+                      "Environment=",
+                      "KAFKA_HEAP_OPTS=-Xmx256M -Xms128M",
+                      "\n",
+                      "ExecStart=/home/ec2-user/kafka/bin/kafka-server-start.sh /home/ec2-user/kafka.properties\n",
+                      "SuccessExitStatus=143\n\n",
+                      "[Install]\n",
+                      "WantedBy=multi-user.target\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/home/ec2-user/kafka.properties": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "broker.id=2\n",
+                      "advertised.listeners=PLAINTEXT://",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${KafkaFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":9092",
+                      "\n",
+                      "delete.topic.enable=true\n",
+                      "log.dirs=/data/kafka\n",
+                      "num.partitions=8\n",
+                      "default.replication.factor=3\n",
+                      "min.insync.replicas=2\n",
+                      "log.retention.hours=10\n",
+                      "zookeeper.connect=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":2181,",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":2181",
+                      ",",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":2181",
+                      "\n",
+                      "zookeeper.connection.timeout.ms=6000\n",
+                      "auto.create.topics.enable=false\n",
+                      "offsets.topic.replication.factor=3\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              },
+              "/usr/local/bin/add_to_bash_profile": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "cat << ",
+                      "EOF",
+                      " >> /home/ec2-user/.bash_profile",
+                      "\n",
+                      "DAEMON_PATH=/home/ec2-user/kafka/bin\n",
+                      "export PATH=$PATH:$DAEMON_PATH\n",
+                      "export KAFKA_HEAP_OPTS=-Xmx256M -Xms128M\n",
+                      "EOF\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/attach_format_ebs": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "while [ ! -e /dev/xvdf ] ; do echo \"Waiting for attachment\"; sleep 1 ; done\n",
+                      "if [ \"$(file -b -s /dev/xvdf)\" == \"data\" ]; then\n",
+                        "mkfs.xfs -f /dev/xvdf\n",
+                      "fi\n",
+                      "mkdir -p /data/kafka\n",
+                      "mount -t xfs /dev/xvdf /data/kafka\n",
+                      "chown -R ec2-user:ec2-user /data/kafka\n",
+                      "echo '/dev/xvdf /data/kafka xfs defaults 0 0' >> /etc/fstab\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/set_swappiness": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sysctl vm.swappiness=1\n",
+                      "echo 'vm.swappiness=1' | sudo tee --append /etc/sysctl.conf\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_kafka_bin": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "wget -P /home/ec2-user http://apache.mirror.digitalpacific.com.au/kafka/1.1.1/kafka_2.12-1.1.1.tgz\n",
+                      "tar xf /home/ec2-user/kafka_2.12-1.1.1.tgz -C /home/ec2-user\n",
+                      "ln -s /home/ec2-user/kafka_2.12-1.1.1 /home/ec2-user/kafka\n",
+                      "chown -R ec2-user:ec2-user /home/ec2-user/kafka /home/ec2-user/kafka_2.12-1.1.1\n",
+                      "rm /home/ec2-user/kafka_2.12-1.1.1.tgz\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_monitoring": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sudo systemctl stop kafka\n",
+                      "mkdir -p /home/ec2-user/prometheus\n",
+                      "wget -N -P /home/ec2-user/prometheus https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.3.1/jmx_prometheus_javaagent-0.3.1.jar\n",
+                      "wget -N -P /home/ec2-user/prometheus https://raw.githubusercontent.com/prometheus/jmx_exporter/master/example_configs/kafka-0-8-2.yml\n",
+                      "mkdir -p /home/ec2-user/jolokia\n",
+                      "wget -N http://search.maven.org/remotecontent?filepath=org/jolokia/jolokia-jvm/1.6.0/jolokia-jvm-1.6.0-agent.jar -O /home/ec2-user/jolokia/jolokia-agent.jar\n",
+                      "if ! grep -q KAFKA_OPTS \"/etc/systemd/system/kafka.service\"; then\n",
+                        "sudo sed -i '/Environment=\"KAFKA_HEAP_OPTS/a Environment=\"KAFKA_OPTS=-javaagent:/home/ec2-user/prometheus/jmx_prometheus_javaagent-0.3.1.jar=8080:/home/ec2-user/prometheus/kafka-0-8-2.yml -javaagent:/home/ec2-user/jolokia/jolokia-agent.jar=host=*\"' /etc/systemd/system/kafka.service\n",
+                      "else\n",
+                        "sudo sed -i 's|Environment=\"KAFKA_OPTS.*|Environment=\"KAFKA_OPTS=-javaagent:/home/ec2-user/prometheus/jmx_prometheus_javaagent-0.3.1.jar=8080:/home/ec2-user/prometheus/kafka-0-8-2.yml -javaagent:/home/ec2-user/jolokia/jolokia-agent.jar=host=*\"|g' /etc/systemd/system/kafka.service\n",
+                      "fi\n",
+                      "sudo systemctl daemon-reload\n",
+                      "sudo systemctl start kafka\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/start_kafka": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "systemctl enable kafka.service\n",
+                      "systemctl start kafka.service"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "packages": {
+              "yum": {
+                "ca-certificates": [],
+                "java-1.8.0-openjdk": [],
+                "net-tools": [],
+                "tar": [],
+                "wget": [],
+                "xfsprogs": [],
+                "zip": []
+              }
+            }
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": "ami-035be7bafff33b6b6",
+        "KeyName": {
+          "Ref": "KafkaKeyPair"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "DeleteOnTermination": false,
+            "NetworkInterfaceId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${KafkaFixedResourceStack}-ENI-2"
+              }
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum update -y\n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " -r KafkaCluster2EC2 --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/opt/aws/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource Kafka2WaitCondition ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Kafka-2"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "Kafka2WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT5M"
+        }
+      }
+    },
+    "Kafka2VolumeAttachment": {
+      "Type": "AWS::EC2::VolumeAttachment",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "KafkaCluster2EC2"
+        },
+        "VolumeId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${KafkaFixedResourceStack}-EBS-2"
+          }
+        },
+        "Device": "/dev/sdf"
+      }
+    },
+    "KafkaCluster3EC2": {
+      "Metadata": {
+        "Comment": "Install a simple applicati",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "0_attach_format_ebs": {
+                "command": "/usr/local/bin/attach_format_ebs",
+                "ignoreErrors": "false"
+              },
+              "1_set_swappiness": {
+                "command": "/usr/local/bin/set_swappiness",
+                "ignoreErrors": "false"
+              },
+              "2_download_extract_kafka": {
+                "command": "/usr/local/bin/setup_kafka_bin",
+                "ignoreErrors": "false"
+              },
+              "3_start_kafka_service": {
+                "command": "/usr/local/bin/start_kafka",
+                "ignoreErrors": "false"
+              },
+              "4_tweak_bash_profile": {
+                "command": "/usr/local/bin/add_to_bash_profile",
+                "ignoreErrors": "false"
+              },
+              "5_setup_monitoring": {
+                "command": {
+                  "Fn::If": [
+                    "SetupMonitoringCondition",
+                    "/usr/local/bin/setup_monitoring",
+                    "echo \"no monitoring setup\""
+                  ]
+                },
+                "ignoreErrors": "false"
+              }
+            },
+            "files": {
+              "/etc/systemd/system/kafka.service": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[Unit]\n",
+                      "Description=Kafka\n",
+                      "After=network.target\n\n",
+                      "[Service]\n",
+                      "User=ec2-user\n",
+                      "Group=ec2-user\n",
+                      "Environment=",
+                      "KAFKA_HEAP_OPTS=-Xmx256M -Xms128M",
+                      "\n",
+                      "ExecStart=/home/ec2-user/kafka/bin/kafka-server-start.sh /home/ec2-user/kafka.properties\n",
+                      "SuccessExitStatus=143\n\n",
+                      "[Install]\n",
+                      "WantedBy=multi-user.target\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/home/ec2-user/kafka.properties": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "broker.id=3\n",
+                      "advertised.listeners=PLAINTEXT://",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${KafkaFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":9092",
+                      "\n",
+                      "delete.topic.enable=true\n",
+                      "log.dirs=/data/kafka\n",
+                      "num.partitions=8\n",
+                      "default.replication.factor=3\n",
+                      "min.insync.replicas=2\n",
+                      "log.retention.hours=10\n",
+                      "zookeeper.connect=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":2181,",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":2181",
+                      ",",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":2181",
+                      "\n",
+                      "zookeeper.connection.timeout.ms=6000\n",
+                      "auto.create.topics.enable=false\n",
+                      "offsets.topic.replication.factor=3\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              },
+              "/usr/local/bin/add_to_bash_profile": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "cat << ",
+                      "EOF",
+                      " >> /home/ec2-user/.bash_profile",
+                      "\n",
+                      "DAEMON_PATH=/home/ec2-user/kafka/bin\n",
+                      "export PATH=$PATH:$DAEMON_PATH\n",
+                      "export KAFKA_HEAP_OPTS=-Xmx256M -Xms128M\n",
+                      "EOF\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/attach_format_ebs": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "while [ ! -e /dev/xvdf ] ; do echo \"Waiting for attachment\"; sleep 1 ; done\n",
+                      "if [ \"$(file -b -s /dev/xvdf)\" == \"data\" ]; then\n",
+                        "mkfs.xfs -f /dev/xvdf\n",
+                      "fi\n",
+                      "mkdir -p /data/kafka\n",
+                      "mount -t xfs /dev/xvdf /data/kafka\n",
+                      "chown -R ec2-user:ec2-user /data/kafka\n",
+                      "echo '/dev/xvdf /data/kafka xfs defaults 0 0' >> /etc/fstab\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/set_swappiness": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sysctl vm.swappiness=1\n",
+                      "echo 'vm.swappiness=1' | sudo tee --append /etc/sysctl.conf\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_kafka_bin": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "wget -P /home/ec2-user http://apache.mirror.digitalpacific.com.au/kafka/1.1.1/kafka_2.12-1.1.1.tgz\n",
+                      "tar xf /home/ec2-user/kafka_2.12-1.1.1.tgz -C /home/ec2-user\n",
+                      "ln -s /home/ec2-user/kafka_2.12-1.1.1 /home/ec2-user/kafka\n",
+                      "chown -R ec2-user:ec2-user /home/ec2-user/kafka /home/ec2-user/kafka_2.12-1.1.1\n",
+                      "rm /home/ec2-user/kafka_2.12-1.1.1.tgz\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_monitoring": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sudo systemctl stop kafka\n",
+                      "mkdir -p /home/ec2-user/prometheus\n",
+                      "wget -N -P /home/ec2-user/prometheus https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.3.1/jmx_prometheus_javaagent-0.3.1.jar\n",
+                      "wget -N -P /home/ec2-user/prometheus https://raw.githubusercontent.com/prometheus/jmx_exporter/master/example_configs/kafka-0-8-2.yml\n",
+                      "mkdir -p /home/ec2-user/jolokia\n",
+                      "wget -N http://search.maven.org/remotecontent?filepath=org/jolokia/jolokia-jvm/1.6.0/jolokia-jvm-1.6.0-agent.jar -O /home/ec2-user/jolokia/jolokia-agent.jar\n",
+                      "if ! grep -q KAFKA_OPTS \"/etc/systemd/system/kafka.service\"; then\n",
+                      "sudo sed -i '/Environment=\"KAFKA_HEAP_OPTS/a Environment=\"KAFKA_OPTS=-javaagent:/home/ec2-user/prometheus/jmx_prometheus_javaagent-0.3.1.jar=8080:/home/ec2-user/prometheus/kafka-0-8-2.yml -javaagent:/home/ec2-user/jolokia/jolokia-agent.jar=host=*\"' /etc/systemd/system/kafka.service\n",
+                      "else\n",
+                      "sudo sed -i 's|Environment=\"KAFKA_OPTS.*|Environment=\"KAFKA_OPTS=-javaagent:/home/ec2-user/prometheus/jmx_prometheus_javaagent-0.3.1.jar=8080:/home/ec2-user/prometheus/kafka-0-8-2.yml -javaagent:/home/ec2-user/jolokia/jolokia-agent.jar=host=*\"|g' /etc/systemd/system/kafka.service\n",
+                      "fi\n",
+                      "sudo systemctl daemon-reload\n",
+                      "sudo systemctl start kafka\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/start_kafka": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "systemctl enable kafka.service\n",
+                      "systemctl start kafka.service"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "packages": {
+              "yum": {
+                "ca-certificates": [],
+                "java-1.8.0-openjdk": [],
+                "net-tools": [],
+                "tar": [],
+                "wget": [],
+                "xfsprogs": [],
+                "zip": []
+              }
+            }
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": "ami-035be7bafff33b6b6",
+        "KeyName": {
+          "Ref": "KafkaKeyPair"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "DeleteOnTermination": false,
+            "NetworkInterfaceId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${KafkaFixedResourceStack}-ENI-3"
+              }
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum update -y\n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " -r KafkaCluster3EC2 --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/opt/aws/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource Kafka3WaitCondition ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Kafka-3"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "Kafka3WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT5M"
+        }
+      }
+    },
+    "Kafka3VolumeAttachment": {
+      "Type": "AWS::EC2::VolumeAttachment",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "KafkaCluster3EC2"
+        },
+        "VolumeId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${KafkaFixedResourceStack}-EBS-3"
+          }
+        },
+        "Device": "/dev/sdf"
+      }
+    }
+  }
+}

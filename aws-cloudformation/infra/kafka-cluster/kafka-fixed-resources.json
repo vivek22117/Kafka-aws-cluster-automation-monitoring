@@ -1,0 +1,362 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation sample template that contains Kafka Resources - Kafka Operations and Monitoring Course -",
+  "Parameters": {
+    "Env": {
+      "Description": "Environment to which cft is created",
+      "Type": "String"
+    },
+    "VPCStackName": {
+      "Description": "VPC under which the resources are created",
+      "Type": "String"
+    },
+    "Kafka1PrivateIP": {
+      "Description": "IP adderes of the instance",
+      "Type": "String"
+    },
+    "Kafka3PrivateIP": {
+      "Description": "IP adderes of the instance",
+      "Type": "String"
+    },
+    "Kafka2PrivateIP": {
+      "Description": "IP adderes of the instance",
+      "Type": "String"
+    },
+    "KF1AZ": {
+      "Description": "AZ for Zookeeper-1",
+      "Type": "AWS::EC2::AvailabilityZone::Name",
+      "Default": "us-east-1a"
+    },
+    "KF2AZ": {
+      "Description": "AZ for Zookeeper-2",
+      "Type": "AWS::EC2::AvailabilityZone::Name",
+      "Default": "us-east-1b"
+    }
+  },
+  "Resources": {
+    "KafkaClusterSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Kafka security group",
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "kafka-sg"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "SGInboundRuleForPort8080": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "JMX Export",
+        "IpProtocol": 6,
+        "FromPort": 8080,
+        "ToPort": 8080,
+        "CidrIp": "0.0.0.0/0",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "KafkaClusterSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForSSHFromMyIP": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "IpProtocol": 6,
+        "FromPort": 22,
+        "ToPort": 22,
+        "CidrIp": "0.0.0.0/0",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "KafkaClusterSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForPort8778": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Jolokia Port",
+        "IpProtocol": 6,
+        "FromPort": 8778,
+        "ToPort": 8778,
+        "CidrIp": "0.0.0.0/0",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "KafkaClusterSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForPort9092": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Kafka External Port",
+        "IpProtocol": 6,
+        "FromPort": 9092,
+        "ToPort": 9092,
+        "CidrIp": "0.0.0.0/0",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "KafkaClusterSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForPort9999": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Kafka External Port",
+        "IpProtocol": 6,
+        "FromPort": 9999,
+        "ToPort": 9999,
+        "CidrIp": "0.0.0.0/0",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "KafkaClusterSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "Kafka1EBSVolume": {
+      "Type": "AWS::EC2::Volume",
+      "Properties": {
+        "AvailabilityZone": {
+          "Ref" : "KF1AZ"
+        },
+        "VolumeType": "gp2",
+        "Size": 8,
+        "Tags": [
+          {
+            "Key": "NodeType",
+            "Value": "Kafka1"
+          }
+        ]
+      }
+    },
+    "Kafka2EBSVolume": {
+      "Type": "AWS::EC2::Volume",
+      "Properties": {
+        "AvailabilityZone": {
+          "Ref" : "KF1AZ"
+        },
+        "VolumeType": "gp2",
+        "Size": 8,
+        "Tags": [
+          {
+            "Key": "NodeType",
+            "Value": "Kafka2"
+          }
+        ]
+      }
+    },
+    "Kafka3EBSVolume": {
+      "Type": "AWS::EC2::Volume",
+      "Properties": {
+        "AvailabilityZone": {
+          "Ref" : "KF2AZ"
+        },
+        "VolumeType": "gp2",
+        "Size": 8,
+        "Tags": [
+          {
+            "Key": "NodeType",
+            "Value": "Kafka3"
+          }
+        ]
+      }
+    },
+    "Kafka1IPResource": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "Kafka-1 IP",
+        "GroupSet": [
+          {
+            "Fn::GetAtt": [
+              "KafkaClusterSecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "PrivateIpAddress": {"Ref" : "Kafka1PrivateIP"},
+        "SubnetId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-SubnetId-A"
+          }
+        }
+      }
+    },
+    "Kafka2IPResource": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "Kafka-2 IP",
+        "GroupSet": [
+          {
+            "Fn::GetAtt": [
+              "KafkaClusterSecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "PrivateIpAddress": {"Ref" : "Kafka2PrivateIP"},
+        "SubnetId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-SubnetId-A"
+          }
+        }
+      }
+    },
+    "Kafka3IPResource": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "Kafka-3 IP",
+        "GroupSet": [
+          {
+            "Fn::GetAtt": [
+              "KafkaClusterSecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "PrivateIpAddress": {"Ref" : "Kafka3PrivateIP"},
+        "SubnetId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-SubnetId-B"
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "KF1ENI": {
+      "Description": "The ENI for KF-1",
+      "Value": {
+        "Ref": "Kafka1IPResource"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ENI-1"
+        }
+      }
+    },
+    "KF2ENI": {
+      "Description": "The ENI for KF-2",
+      "Value": {
+        "Ref": "Kafka2IPResource"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ENI-2"
+        }
+      }
+    },
+    "KF3ENI": {
+      "Description": "The ENI for KF-3",
+      "Value": {
+        "Ref": "Kafka3IPResource"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ENI-3"
+        }
+      }
+    },
+    "KF1ENIIP": {
+      "Description": "The ENI-IP for KF-1",
+      "Value": {
+        "Fn::GetAtt": [
+          "Kafka1IPResource",
+          "PrimaryPrivateIpAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-1-IP"
+        }
+      }
+    },
+    "KF2ENIIP": {
+      "Description": "The ENI-IP for KF-2",
+      "Value": {
+        "Fn::GetAtt": [
+          "Kafka2IPResource",
+          "PrimaryPrivateIpAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-2-IP"
+        }
+      }
+    },
+    "KF3ENIIP": {
+      "Description": "The ENI-IP for KF-3",
+      "Value": {
+        "Fn::GetAtt": [
+          "Kafka3IPResource",
+          "PrimaryPrivateIpAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-3-IP"
+        }
+      }
+    },
+    "KF1EBS": {
+      "Description": "The ENB volume for KF-1",
+      "Value": {
+        "Ref": "Kafka1EBSVolume"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EBS-1"
+        }
+      }
+    },
+    "KF2EBS": {
+      "Description": "The ENB volume for KF-2",
+      "Value": {
+        "Ref": "Kafka2EBSVolume"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EBS-2"
+        }
+      }
+    },
+    "KF3EBS": {
+      "Description": "The ENB volume for KF-3",
+      "Value": {
+        "Ref": "Kafka3EBSVolume"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EBS-3"
+        }
+      }
+    }
+  }
+}

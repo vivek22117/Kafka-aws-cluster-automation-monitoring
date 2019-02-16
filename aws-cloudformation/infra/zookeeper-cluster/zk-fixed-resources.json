@@ -1,0 +1,346 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation sample template that contains Zookeeper fixed resources",
+  "Parameters": {
+    "Env": {
+      "Description": "Environment to which cft is created",
+      "Type": "String"
+    },
+    "VPCStackName": {
+      "Description": "VPC under which the resources are created",
+      "Type": "String"
+    },
+    "Zookeeper1PrivateIP": {
+      "Description": "IP adderes of the instance",
+      "Type": "String"
+    },
+    "Zookeeper3PrivateIP": {
+      "Description": "IP adderes of the instance",
+      "Type": "String"
+    },
+    "Zookeeper2PrivateIP": {
+      "Description": "IP adderes of the instance",
+      "Type": "String"
+    },
+    "ZK1AZ": {
+      "Description": "AZ for Zookeeper-1",
+      "Type": "AWS::EC2::AvailabilityZone::Name",
+      "Default": "us-east-1a"
+    },
+    "ZK2AZ": {
+      "Description": "AZ for Zookeeper-2",
+      "Type": "AWS::EC2::AvailabilityZone::Name",
+      "Default": "us-east-1b"
+    }
+  },
+  "Resources": {
+    "ZookeeperSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Zookeeper security group",
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-VPCId"
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "zk-sg"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "SGInboundRuleForPort2181": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Zookeeper External Port",
+        "IpProtocol": 6,
+        "FromPort": 2181,
+        "ToPort": 2181,
+        "CidrIp": "10.0.0.0/22",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ZookeeperSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForSSHFromMyIP": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "IpProtocol": 6,
+        "FromPort": 22,
+        "ToPort": 22,
+        "CidrIp": "0.0.0.0/0",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ZookeeperSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForPort2888": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Zookeeper Internal Port",
+        "IpProtocol": 6,
+        "FromPort": 2888,
+        "ToPort": 2888,
+        "CidrIp": "10.0.0.0/22",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ZookeeperSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "SGInboundRuleForPort3888": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "Description": "Zookeeper Internal Port",
+        "IpProtocol": 6,
+        "FromPort": 3888,
+        "ToPort": 3888,
+        "CidrIp": "10.0.0.0/22",
+        "GroupId": {
+          "Fn::GetAtt": [
+            "ZookeeperSecurityGroup",
+            "GroupId"
+          ]
+        }
+      }
+    },
+    "Zookeeper1EBSVolume": {
+      "Type": "AWS::EC2::Volume",
+      "Properties": {
+        "AvailabilityZone": {
+          "Ref" : "ZK1AZ"
+        },
+        "VolumeType": "gp2",
+        "Size": 8,
+        "Tags": [
+          {
+            "Key": "NodeType",
+            "Value": "Zookeeper1"
+          }
+        ]
+      }
+    },
+    "Zookeeper2EBSVolume": {
+      "Type": "AWS::EC2::Volume",
+      "Properties": {
+        "AvailabilityZone": {
+          "Ref" : "ZK1AZ"
+        },
+        "VolumeType": "gp2",
+        "Size": 8,
+        "Tags": [
+          {
+            "Key": "NodeType",
+            "Value": "Zookeeper2"
+          }
+        ]
+      }
+    },
+    "Zookeeper3EBSVolume": {
+      "Type": "AWS::EC2::Volume",
+      "Properties": {
+        "AvailabilityZone": {
+          "Ref" : "ZK2AZ"
+        },
+        "VolumeType": "gp2",
+        "Size": 8,
+        "Tags": [
+          {
+            "Key": "NodeType",
+            "Value": "Zookeeper3"
+          }
+        ]
+      }
+    },
+    "Zookeeper1IPResource": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "Zookeeper-1 IP",
+        "GroupSet": [
+          {
+            "Fn::GetAtt": [
+              "ZookeeperSecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "PrivateIpAddress": {"Ref" : "Zookeeper1PrivateIP"},
+        "SubnetId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-SubnetId-A"
+          }
+        }
+      }
+    },
+    "Zookeeper2IPResource": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "Zookeeper-2 IP",
+        "GroupSet": [
+          {
+            "Fn::GetAtt": [
+              "ZookeeperSecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "PrivateIpAddress": {"Ref" : "Zookeeper2PrivateIP"},
+        "SubnetId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-SubnetId-A"
+          }
+        }
+      }
+    },
+    "Zookeeper3IPResource": {
+      "Type": "AWS::EC2::NetworkInterface",
+      "Properties": {
+        "Description": "Zookeeper-3 IP",
+        "GroupSet": [
+          {
+            "Fn::GetAtt": [
+              "ZookeeperSecurityGroup",
+              "GroupId"
+            ]
+          }
+        ],
+        "PrivateIpAddress": {"Ref" : "Zookeeper3PrivateIP"},
+        "SubnetId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${VPCStackName}-SubnetId-B"
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ZK1ENI": {
+      "Description": "The ENI for ZK-1",
+      "Value": {
+        "Ref": "Zookeeper1IPResource"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ENI-1"
+        }
+      }
+    },
+    "ZK2ENI": {
+      "Description": "The ENI for ZK-2",
+      "Value": {
+        "Ref": "Zookeeper2IPResource"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ENI-2"
+        }
+      }
+    },
+    "ZK3ENI": {
+      "Description": "The ENI for ZK-3",
+      "Value": {
+        "Ref": "Zookeeper3IPResource"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-ENI-3"
+        }
+      }
+    },
+    "ZK1ENIIP": {
+      "Description": "The ENI-IP for ZK-1",
+      "Value": {
+        "Fn::GetAtt": [
+          "Zookeeper1IPResource",
+          "PrimaryPrivateIpAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-1-IP"
+        }
+      }
+    },
+    "ZK2ENIIP": {
+      "Description": "The ENI-IP for ZK-2",
+      "Value": {
+        "Fn::GetAtt": [
+          "Zookeeper2IPResource",
+          "PrimaryPrivateIpAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-2-IP"
+        }
+      }
+    },
+    "ZK3ENIIP": {
+      "Description": "The ENI-IP for ZK-3",
+      "Value": {
+        "Fn::GetAtt": [
+          "Zookeeper3IPResource",
+          "PrimaryPrivateIpAddress"
+        ]
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-3-IP"
+        }
+      }
+    },
+    "ZK1EBS": {
+      "Description": "The ENB volume for ZK-1",
+      "Value": {
+        "Ref": "Zookeeper1EBSVolume"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EBS-1"
+        }
+      }
+    },
+    "ZK2EBS": {
+      "Description": "The ENB volume for ZK-2",
+      "Value": {
+        "Ref": "Zookeeper2EBSVolume"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EBS-2"
+        }
+      }
+    },
+    "ZK3EBS": {
+      "Description": "The ENB volume for ZK-3",
+      "Value": {
+        "Ref": "Zookeeper3EBSVolume"
+      },
+      "Export": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-EBS-3"
+        }
+      }
+    }
+  }
+}

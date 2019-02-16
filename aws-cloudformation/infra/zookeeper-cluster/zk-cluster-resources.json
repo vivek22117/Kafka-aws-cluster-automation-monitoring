@@ -1,0 +1,908 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation sample template that contains Zookeeper fixed resources",
+  "Parameters": {
+    "Env": {
+      "Description": "Environment to which cft is created",
+      "Type": "String"
+    },
+    "VPCStackName": {
+      "Description": "VPC under which the resources are created",
+      "Type": "String"
+    },
+    "ZKFixedResourceStack": {
+      "Description": "Stack name of ZK fixed reources",
+      "Type": "String"
+    },
+    "InstanceType": {
+      "Description": "Type of instance",
+      "Type": "String",
+      "Default": "t2.small"
+    },
+    "ZKKeyPair": {
+      "Description": "Key pair for ec2 instance",
+      "Type": "String",
+      "Default": "jenkins-master"
+    }
+  },
+  "Resources": {
+    "Zookeeper1VolumeAttachment": {
+      "Type": "AWS::EC2::VolumeAttachment",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "Zookeeper1EC2"
+        },
+        "VolumeId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ZKFixedResourceStack}-EBS-1"
+          }
+        },
+        "Device": "/dev/sdf"
+      }
+    },
+    "Zookeeper1EC2": {
+      "Metadata": {
+        "Comment": "Install a simple application",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "0_attach_format_ebs": {
+                "command": "/usr/local/bin/attach_format_ebs",
+                "ignoreErrors": "false"
+              },
+              "1_set_swappiness": {
+                "command": "/usr/local/bin/set_swappiness",
+                "ignoreErrors": "false"
+              },
+              "2_download_extract_kafka": {
+                "command": "/usr/local/bin/setup_kafka_bin",
+                "ignoreErrors": "false"
+              },
+              "3_start_zookeeper_service": {
+                "command": "/usr/local/bin/start_zookeeper",
+                "ignoreErrors": "false"
+              },
+              "4_tweak_bash_profile": {
+                "command": "/usr/local/bin/add_to_bash_profile",
+                "ignoreErrors": "false"
+              }
+            },
+            "files": {
+              "/etc/systemd/system/zookeeper.service": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[Unit]\n",
+                      "Description=Zookeeper\n",
+                      "After=network.target\n\n",
+                      "[Service]\n",
+                      "User=ec2-user\n",
+                      "Group=ec2-user\n",
+                      "SyslogIdentifier=zookeeper\n",
+                      "ExecStart=/home/ec2-user/kafka/bin/zookeeper-server-start.sh /home/ec2-user/zookeeper.properties\n",
+                      "SuccessExitStatus=143\n\n",
+                      "[Install]\n",
+                      "WantedBy=multi-user.target\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/home/ec2-user/zookeeper.properties": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "dataDir=/data/zookeeper\n",
+                      "clientPort=2181\n",
+                      "maxClientCnxns=0\n",
+                      "tickTime=2000\n",
+                      "initLimit=10\n",
+                      "syncLimit=5\n",
+                      "server.1=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n",
+                      "server.2=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n",
+                      "server.3=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              },
+              "/usr/local/bin/add_to_bash_profile": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "cat << ",
+                      "EOF",
+                      " >> /home/ec2-user/.bash_profile",
+                      "\n",
+                      "DAEMON_PATH=/home/ec2-user/kafka/bin\n",
+                      "export PATH=$PATH:$DAEMON_PATH\n",
+                      "export KAFKA_HEAP_OPTS=-Xmx256M -Xms128M\n",
+                      "EOF\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/attach_format_ebs": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "while [ ! -e /dev/xvdf ] ; do echo \"Waiting for attachment\"; sleep 1 ; done\n",
+                      "if [ \"$(file -b -s /dev/xvdf)\" == \"data\" ]; then\n",
+                        "mkfs.xfs -f /dev/xvdf\n",
+                      "fi\n",
+                      "mkdir -p /data/zookeeper\n",
+                      "mount -t xfs /dev/xvdf /data/zookeeper\n",
+                      "chown -R ec2-user:ec2-user /data/zookeeper\n",
+                      "echo '1' > /data/zookeeper/myid\n",
+                      "echo '/dev/xvdf /data/zookeeper xfs defaults 0 0' >> /etc/fstab\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/set_swappiness": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sysctl vm.swappiness=1\n",
+                      "echo 'vm.swappiness=1' | sudo tee --append /etc/sysctl.conf\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_kafka_bin": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "wget -P /home/ec2-user http://apache.mirror.digitalpacific.com.au/kafka/1.1.1/kafka_2.12-1.1.1.tgz\n",
+                      "tar xf /home/ec2-user/kafka_2.12-1.1.1.tgz -C /home/ec2-user\n",
+                      "ln -s /home/ec2-user/kafka_2.12-1.1.1 /home/ec2-user/kafka\n",
+                      "chown -R ec2-user:ec2-user /home/ec2-user/kafka /home/ec2-user/kafka_2.12-1.1.1\n",
+                      "rm /home/ec2-user/kafka_2.12-1.1.1.tgz\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/start_zookeeper": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "systemctl enable zookeeper.service\n",
+                      "systemctl start zookeeper.service"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "packages": {
+              "yum": {
+                "ca-certificates": [],
+                "java-1.8.0-openjdk": [],
+                "net-tools": [],
+                "tar": [],
+                "wget": [],
+                "xfsprogs": [],
+                "zip": []
+              }
+            }
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": "ami-035be7bafff33b6b6",
+        "KeyName": {
+          "Ref": "ZKKeyPair"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "DeleteOnTermination": false,
+            "NetworkInterfaceId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${ZKFixedResourceStack}-ENI-1"
+              }
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum update -y\n",
+                "yum install nmap-ncat -y\n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " -r Zookeeper1EC2 --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/opt/aws/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource Zookeeper1WaitCondition ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Zookeeper-1"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "Zookeeper1WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT5M"
+        }
+      }
+    },
+    "Zookeeper2VolumeAttachment": {
+      "Type": "AWS::EC2::VolumeAttachment",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "Zookeeper2EC2"
+        },
+        "VolumeId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ZKFixedResourceStack}-EBS-2"
+          }
+        },
+        "Device": "/dev/sdf"
+      }
+    },
+    "Zookeeper2EC2": {
+      "Metadata": {
+        "Comment": "Install a simple application",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "0_attach_format_ebs": {
+                "command": "/usr/local/bin/attach_format_ebs",
+                "ignoreErrors": "false"
+              },
+              "1_set_swappiness": {
+                "command": "/usr/local/bin/set_swappiness",
+                "ignoreErrors": "false"
+              },
+              "2_download_extract_kafka": {
+                "command": "/usr/local/bin/setup_kafka_bin",
+                "ignoreErrors": "false"
+              },
+              "3_start_zookeeper_service": {
+                "command": "/usr/local/bin/start_zookeeper",
+                "ignoreErrors": "false"
+              },
+              "4_tweak_bash_profile": {
+                "command": "/usr/local/bin/add_to_bash_profile",
+                "ignoreErrors": "false"
+              }
+            },
+            "files": {
+              "/etc/systemd/system/zookeeper.service": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[Unit]\n",
+                      "Description=Zookeeper\n",
+                      "After=network.target\n\n",
+                      "[Service]\n",
+                      "User=ec2-user\n",
+                      "Group=ec2-user\n",
+                      "SyslogIdentifier=zookeeper\n",
+                      "ExecStart=/home/ec2-user/kafka/bin/zookeeper-server-start.sh /home/ec2-user/zookeeper.properties\n",
+                      "SuccessExitStatus=143\n\n",
+                      "[Install]\n",
+                      "WantedBy=multi-user.target\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/home/ec2-user/zookeeper.properties": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "dataDir=/data/zookeeper\n",
+                      "clientPort=2181\n",
+                      "maxClientCnxns=0\n",
+                      "tickTime=2000\n",
+                      "initLimit=10\n",
+                      "syncLimit=5\n",
+                      "server.1=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n",
+                      "server.2=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n",
+                      "server.3=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              },
+              "/usr/local/bin/add_to_bash_profile": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "cat << ",
+                      "EOF",
+                      " >> /home/ec2-user/.bash_profile",
+                      "\n",
+                      "DAEMON_PATH=/home/ec2-user/kafka/bin\n",
+                      "export PATH=$PATH:$DAEMON_PATH\n",
+                      "export KAFKA_HEAP_OPTS=-Xmx256M -Xms128M",
+                      "\n",
+                      "EOF\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/attach_format_ebs": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "while [ ! -e /dev/xvdf ] ; do echo \"Waiting for attachment\"; sleep 1 ; done\n",
+                      "if [ \"$(file -b -s /dev/xvdf)\" == \"data\" ]; then\n",
+                        "mkfs.xfs -f /dev/xvdf\n",
+                      "fi\n",
+                      "mkdir -p /data/zookeeper\n",
+                      "mount -t xfs /dev/xvdf /data/zookeeper\n",
+                      "chown -R ec2-user:ec2-user /data/zookeeper\n",
+                      "echo '2' > /data/zookeeper/myid\n",
+                      "echo '/dev/xvdf /data/zookeeper xfs defaults 0 0' >> /etc/fstab\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/set_swappiness": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sysctl vm.swappiness=1\n",
+                      "echo 'vm.swappiness=1' | sudo tee --append /etc/sysctl.conf\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_kafka_bin": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "wget -P /home/ec2-user http://apache.mirror.digitalpacific.com.au/kafka/1.1.1/kafka_2.12-1.1.1.tgz\n",
+                      "tar xf /home/ec2-user/kafka_2.12-1.1.1.tgz -C /home/ec2-user\n",
+                      "ln -s /home/ec2-user/kafka_2.12-1.1.1 /home/ec2-user/kafka\n",
+                      "chown -R ec2-user:ec2-user /home/ec2-user/kafka /home/ec2-user/kafka_2.12-1.1.1\n",
+                      "rm /home/ec2-user/kafka_2.12-1.1.1.tgz\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/start_zookeeper": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "systemctl enable zookeeper.service\n",
+                      "systemctl start zookeeper.service"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "packages": {
+              "yum": {
+                "ca-certificates": [],
+                "java-1.8.0-openjdk": [],
+                "net-tools": [],
+                "tar": [],
+                "wget": [],
+                "xfsprogs": [],
+                "zip": []
+              }
+            }
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": "ami-035be7bafff33b6b6",
+        "KeyName": {
+          "Ref": "ZKKeyPair"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "DeleteOnTermination": false,
+            "NetworkInterfaceId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${ZKFixedResourceStack}-ENI-2"
+              }
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum update -y\n",
+                "yum install nmap-ncat -y\n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " -r Zookeeper2EC2 --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/opt/aws/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource Zookeeper2WaitCondition ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Zookeeper-2"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "Zookeeper2WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT5M"
+        }
+      }
+    },
+    "Zookeeper3VolumeAttachment": {
+      "Type": "AWS::EC2::VolumeAttachment",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "Zookeeper3EC2"
+        },
+        "VolumeId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ZKFixedResourceStack}-EBS-3"
+          }
+        },
+        "Device": "/dev/sdf"
+      }
+    },
+    "Zookeeper3EC2": {
+      "Metadata": {
+        "Comment": "Install a simple application",
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "commands": {
+              "0_attach_format_ebs": {
+                "command": "/usr/local/bin/attach_format_ebs",
+                "ignoreErrors": "false"
+              },
+              "1_set_swappiness": {
+                "command": "/usr/local/bin/set_swappiness",
+                "ignoreErrors": "false"
+              },
+              "2_download_extract_kafka": {
+                "command": "/usr/local/bin/setup_kafka_bin",
+                "ignoreErrors": "false"
+              },
+              "3_start_zookeeper_service": {
+                "command": "/usr/local/bin/start_zookeeper",
+                "ignoreErrors": "false"
+              },
+              "4_tweak_bash_profile": {
+                "command": "/usr/local/bin/add_to_bash_profile",
+                "ignoreErrors": "false"
+              }
+            },
+            "files": {
+              "/etc/systemd/system/zookeeper.service": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[Unit]\n",
+                      "Description=Zookeeper\n",
+                      "After=network.target\n\n",
+                      "[Service]\n",
+                      "User=ec2-user\n",
+                      "Group=ec2-user\n",
+                      "SyslogIdentifier=zookeeper\n",
+                      "ExecStart=/home/ec2-user/kafka/bin/zookeeper-server-start.sh /home/ec2-user/zookeeper.properties\n",
+                      "SuccessExitStatus=143\n\n",
+                      "[Install]\n",
+                      "WantedBy=multi-user.target\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/home/ec2-user/zookeeper.properties": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "dataDir=/data/zookeeper\n",
+                      "clientPort=2181\n",
+                      "maxClientCnxns=0\n",
+                      "tickTime=2000\n",
+                      "initLimit=10\n",
+                      "syncLimit=5\n",
+                      "server.1=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-1-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n",
+                      "server.2=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-2-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n",
+                      "server.3=",
+                      {
+                        "Fn::ImportValue": {
+                          "Fn::Sub": "${ZKFixedResourceStack}-3-IP"
+                        }
+                      },
+                      ":2888:3888",
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "ec2-user",
+                "group": "ec2-user"
+              },
+              "/usr/local/bin/add_to_bash_profile": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "cat << ",
+                      "EOF",
+                      " >> /home/ec2-user/.bash_profile",
+                      "\n",
+                      "DAEMON_PATH=/home/ec2-user/kafka/bin\n",
+                      "export PATH=$PATH:$DAEMON_PATH\n",
+                      "export KAFKA_HEAP_OPTS=-Xmx256M -Xms128M",
+                      "\n",
+                      "EOF\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/attach_format_ebs": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "while [ ! -e /dev/xvdf ] ; do echo \"Waiting for attachment\"; sleep 1 ; done\n",
+                      "if [ \"$(file -b -s /dev/xvdf)\" == \"data\" ]; then\n",
+                        "mkfs.xfs -f /dev/xvdf\n",
+                      "fi\n",
+                      "mkdir -p /data/zookeeper\n",
+                      "mount -t xfs /dev/xvdf /data/zookeeper\n",
+                      "chown -R ec2-user:ec2-user /data/zookeeper\n",
+                      "echo \"3\" > /data/zookeeper/myid\n",
+                      "echo '/dev/xvdf /data/zookeeper xfs defaults 0 0' >> /etc/fstab\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/set_swappiness": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "sysctl vm.swappiness=1\n",
+                      "echo 'vm.swappiness=1' | sudo tee --append /etc/sysctl.conf\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/setup_kafka_bin": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "wget -P /home/ec2-user http://apache.mirror.digitalpacific.com.au/kafka/1.1.1/kafka_2.12-1.1.1.tgz\n",
+                      "tar xf /home/ec2-user/kafka_2.12-1.1.1.tgz -C /home/ec2-user\n",
+                      "ln -s /home/ec2-user/kafka_2.12-1.1.1 /home/ec2-user/kafka\n",
+                      "chown -R ec2-user:ec2-user /home/ec2-user/kafka /home/ec2-user/kafka_2.12-1.1.1\n",
+                      "rm /home/ec2-user/kafka_2.12-1.1.1.tgz\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/bin/start_zookeeper": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "#!/bin/bash -xe\n",
+                      "systemctl enable zookeeper.service\n",
+                      "systemctl start zookeeper.service"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "packages": {
+              "yum": {
+                "ca-certificates": [],
+                "java-1.8.0-openjdk": [],
+                "net-tools": [],
+                "tar": [],
+                "wget": [],
+                "xfsprogs": [],
+                "zip": []
+              }
+            }
+          }
+        }
+      },
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "ImageId": "ami-035be7bafff33b6b6",
+        "KeyName": {
+          "Ref": "ZKKeyPair"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "DeleteOnTermination": false,
+            "NetworkInterfaceId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${ZKFixedResourceStack}-ENI-3"
+              }
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -xe\n",
+                "yum update -y aws-cfn-bootstrap\n",
+                "yum update -y\n",
+                "yum install nmap-ncat -y\n",
+                "/opt/aws/bin/cfn-init -s ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " -r Zookeeper3EC2 --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/opt/aws/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource Zookeeper3WaitCondition ",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "Zookeeper-3"
+          },
+          {
+            "Key": "component",
+            "Value": "double-digit-test"
+          },
+          {
+            "Key": "environment",
+            "Value": {
+              "Ref": "Env"
+            }
+          }
+        ]
+      }
+    },
+    "Zookeeper3WaitCondition": {
+      "Type": "AWS::CloudFormation::WaitCondition",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT5M"
+        }
+      }
+    }
+  }
+}

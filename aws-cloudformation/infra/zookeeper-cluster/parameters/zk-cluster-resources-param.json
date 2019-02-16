@@ -1,0 +1,14 @@
+[
+  {
+    "ParameterKey": "VPCStackName",
+    "ParameterValue": "vpc-subnet-network-by-vivek"
+  },
+  {
+    "ParameterKey": "ZKFixedResourceStack",
+    "ParameterValue": "zk-fixed-resources"
+  },
+  {
+    "ParameterKey": "Env",
+    "ParameterValue": "devl"
+  }
+]

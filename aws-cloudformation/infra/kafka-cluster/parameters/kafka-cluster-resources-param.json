@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "VPCStackName",
+    "ParameterValue": "vpc-subnet-network-by-vivek"
+  },
+  {
+    "ParameterKey": "KafkaFixedResourceStack",
+    "ParameterValue": "kafka-fixed-resources"
+  },
+  {
+    "ParameterKey": "ZKFixedResourceStack",
+    "ParameterValue": "zk-fixed-resources"
+  },
+  {
+    "ParameterKey": "Env",
+    "ParameterValue": "devl"
+  }
+]

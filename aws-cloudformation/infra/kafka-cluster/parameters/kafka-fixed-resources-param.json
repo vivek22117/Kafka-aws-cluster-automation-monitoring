@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "VPCStackName",
+    "ParameterValue": "vpc-subnet-network-by-vivek"
+  },
+  {
+    "ParameterKey": "Env",
+    "ParameterValue": "devl"
+  },
+  {
+    "ParameterKey": "Kafka1PrivateIP",
+    "ParameterValue": "10.0.0.12"
+  },
+  {
+    "ParameterKey": "Kafka2PrivateIP",
+    "ParameterValue": "10.0.0.23"
+  },
+  {
+    "ParameterKey": "Kafka3PrivateIP",
+    "ParameterValue": "10.0.1.12"
+  }
+]

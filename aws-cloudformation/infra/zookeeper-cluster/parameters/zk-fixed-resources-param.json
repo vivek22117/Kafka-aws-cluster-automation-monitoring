@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "VPCStackName",
+    "ParameterValue": "vpc-subnet-network-by-vivek"
+  },
+  {
+    "ParameterKey": "Env",
+    "ParameterValue": "devl"
+  },
+  {
+    "ParameterKey": "Zookeeper1PrivateIP",
+    "ParameterValue": "10.0.0.11"
+  },
+  {
+    "ParameterKey": "Zookeeper2PrivateIP",
+    "ParameterValue": "10.0.0.22"
+  },
+  {
+    "ParameterKey": "Zookeeper3PrivateIP",
+    "ParameterValue": "10.0.1.11"
+  }
+]
