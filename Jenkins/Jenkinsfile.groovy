@@ -23,7 +23,7 @@ def createKafkaFixedStack(String region, String stack) {
 def createZookeeperClusterStack(String region, String stack) {
     sh "aws cloudformation --region ${region} validate-template --template-body file://zk-cluster-resources.json"
     sh "aws cloudformation --region ${region} create-stack --stack-name ${stack} --template-body \
-        file://zk-cluster-resources.json --parameters file://parameter/zk-cluster-resources-param.json"
+        file://zk-cluster-resources.json --parameters file://parameters/zk-cluster-resources-param.json"
     sh "aws cloudformation --region ${region} wait stack-create-complete --stack-name ${stack}"
     sh "aws cloudformation --region ${region} describe-stack-events --stack-name ${stack} \
         --query 'StackEvents[].[{Resource:LogicalResourceId,Status:ResourceStatus,Reason:ResourceStatusReason}]' \
@@ -33,7 +33,7 @@ def createZookeeperClusterStack(String region, String stack) {
 def createKafkaClusterStack(String region, String stack) {
     sh "aws cloudformation --region ${region} validate-template --template-body file://kafka-cluster-resources.json"
     sh "aws cloudformation --region ${region} create-stack --stack-name ${stack} --template-body \
-        file://kafka-cluster-resources.json --parameters file://parameter/kafka-cluster-resources-param.json"
+        file://kafka-cluster-resources.json --parameters file://parameters/kafka-cluster-resources-param.json"
     sh "aws cloudformation --region ${region} wait stack-create-complete --stack-name ${stack}"
     sh "aws cloudformation --region ${region} describe-stack-events --stack-name ${stack} \
         --query 'StackEvents[].[{Resource:LogicalResourceId,Status:ResourceStatus,Reason:ResourceStatusReason}]' \
