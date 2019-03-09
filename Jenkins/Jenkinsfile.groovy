@@ -1,4 +1,3 @@
-#!groovy
 
 def createZookeeperFixedStack(String region, String stack) {
     sh "aws cloudformation --region ${region} validate-template --template-body file://zk-fixed-resources.json"
