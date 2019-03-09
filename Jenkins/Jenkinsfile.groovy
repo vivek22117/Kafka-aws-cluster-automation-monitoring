@@ -87,7 +87,7 @@ pipeline {
                             --stack-name ${params.ZK_FX_STACK} --query Stacks[0].StackStatus --output text", returnStdout: true)
                             apply = true
                             sh "echo $status"
-                            if (status == 'DELETE_FAILED' || 'ROLLBACK_COMPLETE' || 'ROLLBACK_FAILED' || 'UPDATE_ROLLBACK_FAILED') {
+                            if ($status == 'DELETE_FAILED' || 'ROLLBACK_COMPLETE' || 'ROLLBACK_FAILED' || 'UPDATE_ROLLBACK_FAILED') {
                                 sh "aws cloudformation delete-stack --stack-name ${params.ZK_FX_STACK} --region ${params.REGION}"
                                 sh 'echo Creating Zookeeper Cluster....'
                                 createZookeeperClusterStack(params.REGION, params.ZK_FX_STACK)
@@ -124,9 +124,9 @@ pipeline {
                             ${params.KAFKA_FX_STACK} --query Stacks[0].StackStatus --output text", returnStdout: true)
                             apply = true
                             sh "echo $status"
-                            if (status == 'DELETE_FAILED' || 'ROLLBACK_COMPLETE' || 'ROLLBACK_FAILED' || 'UPDATE_ROLLBACK_FAILED') {
+                            if ($status == 'DELETE_FAILED' || 'ROLLBACK_COMPLETE' || 'ROLLBACK_FAILED' || 'UPDATE_ROLLBACK_FAILED') {
                                 sh "aws cloudformation delete-stack --stack-name ${params.KAFKA_FX_STACK} --region ${params.REGION}"
-                                sh 'echo Creating Zookeeper Cluster....'
+                                sh 'echo Creating kafka fixed resource Cluster....'
                                 createKafkaFixedStack(params.REGION, params.KAFKA_FX_STACK)
                                 apply = false
                             }
