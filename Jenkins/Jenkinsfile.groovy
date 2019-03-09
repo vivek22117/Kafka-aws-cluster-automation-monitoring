@@ -48,7 +48,7 @@ pipeline {
         string(name: 'ZK_FX_STACK', defaultValue: 'zk-fixed-resources', description: 'worspace to use in Terraform')
         string(name: 'ZK_CLUSTER_STACK', defaultValue: 'zk-cluster-resources', description: 'worspace to use in Terraform')
         string(name: 'KAFKA_FX_STACK', defaultValue: 'kafka-fixed-resources', description: 'worspace to use in Terraform')
-        string(name: 'KAFKA_CLUSTER_STACK', defaultValue: 'kafka-cluster-resources', description: 'worspace to use in Terraform')
+        string(name: 'KAFKA_CLUSTER_STACK', defaultValue: 'null', description: 'worspace to use in Terraform')
     }
     stages {
         stage('Create-or-Destroy!') {
@@ -60,10 +60,10 @@ pipeline {
                         apply = true;
                     } catch (err) {
                         apply = false
-                        sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.KAFKA_CLUSTER_STACK}"
                         sh "aws cloudformation delete-stack --stack-name ${params.KAFKA_CLUSTER_STACK} --region ${params.REGION}"
-                        sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.ZK_CLUSTER_STACK}"
+                        sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.KAFKA_CLUSTER_STACK}"
                         sh "aws cloudformation delete-stack --stack-name ${params.ZK_CLUSTER_STACK} --region ${params.REGION}"
+                        sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.ZK_CLUSTER_STACK}"
                         sh "aws cloudformation delete-stack --stack-name ${params.ZK_FX_STACK} --region ${params.REGION}"
                         sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.ZK_FX_STACK}"
                         sh "aws cloudformation delete-stack --stack-name ${params.KAFKA_FX_STACK} --region ${params.REGION}"
