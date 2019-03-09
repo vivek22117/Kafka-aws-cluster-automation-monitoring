@@ -92,7 +92,7 @@ pipeline {
                                 createZookeeperClusterStack(params.REGION, params.ZK_FX_STACK)
                                 apply = false
                             }
-                        } catch (err) {
+                        } catch (ignored) {
                             apply = false
                             sh "echo Creating Zookeeper fixed resource Cluster"
                             createZookeeperFixedStack(params.REGION, params.ZK_FX_STACK)
