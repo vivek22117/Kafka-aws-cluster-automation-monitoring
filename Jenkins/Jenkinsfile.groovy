@@ -170,7 +170,7 @@ pipeline {
                         } catch (err) {
                             apply = false
                             sh 'echo Creating Zookeeper Cluster for first time....'
-                            createZookeeperClusterStack(${params.REGION}, ${params.ZK_CLUSTER_STACK})
+                            createZookeeperClusterStack(params.REGION, params.ZK_CLUSTER_STACK)
                         }
                         if (apply) {
                             try {
