@@ -44,9 +44,6 @@ def createKafkaClusterStack(String region, String stack) {
 pipeline {
     agent any
 
-    options {
-        timestamps()
-    }
     parameters {
         string(name: 'REGION', defaultValue: 'us-east-1', description: 'worspace to use in Terraform')
         string(name: 'ZK_FX_STACK', defaultValue: 'zk-fixed-resources', description: 'worspace to use in Terraform')
