@@ -68,6 +68,8 @@ pipeline {
                         sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.ZK_CLUSTER_STACK}"
                         sh "aws cloudformation delete-stack --stack-name ${params.KAFKA_CLUSTER_STACK} --region ${params.REGION}"
                         sh "aws cloudformation --region ${params.REGION} wait stack-delete-complete --stack-name ${params.KAFKA_CLUSTER_STACK}"
+                        currentBuild.result = 'SUCCESS'
+                        return
                     }
                     if (apply) {
                         sh "echo Creating AWS infrastructure......!"
@@ -194,25 +196,25 @@ pipeline {
                         def status = null
                         try {
                             status = sh(script: "aws cloudformation describe-stacks --region ${params.REGION} \
-                                --stack-name ${params.KAKFA_CLUSTER_STACK} --query Stacks[0].StackStatus --output text", returnStdout: true)
+                                --stack-name ${params.KAFKA_CLUSTER_STACK} --query Stacks[0].StackStatus --output text", returnStdout: true)
                             apply = true
                             sh "echo $status"
                             if (status == 'DELETE_FAILED' || 'ROLLBACK_COMPLETE' || 'ROLLBACK_FAILED' || 'UPDATE_ROLLBACK_FAILED') {
-                                sh "aws cloudformation delete-stack --stack-name ${params.KAKFA_CLUSTER_STACK} --region ${params.REGION}"
+                                sh "aws cloudformation delete-stack --stack-name ${params.KAFKA_CLUSTER_STACK} --region ${params.REGION}"
                                 sh 'echo Creating Zookeeper Cluster....'
-                                createKafkaClusterStack(params.REGION, params.KAKFA_CLUSTER_STACK)
+                                createKafkaClusterStack(params.REGION, params.KAFKA_CLUSTER_STACK)
                                 apply = false
                             }
                         } catch (err) {
                             apply = false
                             sh 'echo Creating Zookeeper Cluster for first time....'
-                            createKafkaClusterStack(params.REGION, params.KAKFA_CLUSTER_STACK)
+                            createKafkaClusterStack(params.REGION, params.KAFKA_CLUSTER_STACK)
                         }
                         if (apply) {
                             try {
                                 sh "echo Stack exists, attempting update..."
                                 sh "aws cloudformation --region ${params.REGION} update-stack --stack-name \
-                                    ${params.KAKFA_CLUSTER_STACK} --template-body file://zk-cluster-resources.json \
+                                    ${params.KAFKA_CLUSTER_STACK} --template-body file://zk-cluster-resources.json \
                                     --parameters file://parameters/zk-cluster-resources-param.json"
                             } catch (err) {
                                 sh "echo Finished create/update - no updates to be performed"
