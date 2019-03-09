@@ -69,7 +69,7 @@ pipeline {
                             if (status == 'DELETE_FAILED' || 'ROLLBACK_COMPLETE' || 'ROLLBACK_FAILED' || 'UPDATE_ROLLBACK_FAILED') {
                                 sh "aws cloudformation delete-stack --stack-name ${params.ZK_FX_STACK} --region ${params.REGION}"
                                 sh 'echo Creating Zookeeper Cluster....'
-                                createZookeeperClusterStack(${ params.REGION }, ${ params.ZK_FX_STACK })
+                                createZookeeperClusterStack(${params.REGION}, ${params.ZK_FX_STACK})
                                 apply = false
                             }
                         } catch (err) {
